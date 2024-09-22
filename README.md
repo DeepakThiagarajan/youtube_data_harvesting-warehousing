@@ -33,5 +33,8 @@ The MySQL database consists of the following tables:
   playlist_data: Stores details about playlists on the channel.
   Playlist_Id, Title, Channel_Id, Channel_Name, PublishedAt, Video_count
 
+  ![image](https://github.com/user-attachments/assets/88d47ab4-62b8-4d58-8d18-7de124f2dc59)
+
+
 
 
