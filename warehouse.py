@@ -190,7 +190,7 @@ def get_playlist_details(youtube, channel_id):
 mysql_host = "localhost"
 mysql_user = "root"
 mysql_password = "simple"
-mysql_database = "youtube_database"
+mysql_database = "youtube_db"
 mysql_port = "3306"
 
 # Function to connect to MySQL database
@@ -409,18 +409,239 @@ def insert_playlist_info_to_mysql(conn, playlist_info):
     finally:
         cursor.close()
 
+def get_stored_channel_list(conn):
+    """Fetch list of all channels stored in the database"""
+    cursor = conn.cursor(dictionary=True)
+    try:
+        query = """
+        SELECT Channel_Name, Channel_Id, Subscribers, Total_videos 
+        FROM channel_data 
+        ORDER BY Channel_Name
+        """
+        cursor.execute(query)
+        channels = cursor.fetchall()
+        return channels
+    except mysql.connector.Error as e:
+        st.error(f"Error fetching stored channels: {e}")
+        return []
+    finally:
+        cursor.close()
+
+
+def fetch_stored_channel_data(conn, channel_id):
+    """Fetch all data for a specific channel from database"""
+    cursor = conn.cursor(dictionary=True)
+    data = {
+        'channel_info': [],
+        'video_data': [],
+        'playlist_info': [],
+        'comment_data': []
+    }
+    
+    try:
+        # Fetch channel info
+        cursor.execute("SELECT * FROM channel_data WHERE Channel_Id = %s", (channel_id,))
+        data['channel_info'] = cursor.fetchall()
+        
+        if not data['channel_info']:
+            st.error(f"No channel found with ID: {channel_id}")
+            return None
+            
+        # Fetch video info
+        cursor.execute("SELECT * FROM video_data WHERE Channel_Id = %s", (channel_id,))
+        data['video_data'] = cursor.fetchall()
+        
+        # Fetch playlist info
+        cursor.execute("SELECT * FROM playlist_data WHERE Channel_Id = %s", (channel_id,))
+        data['playlist_info'] = cursor.fetchall()
+        
+        # Fetch comments for this channel's videos
+        if data['video_data']:
+            video_ids = [video['Video_Id'] for video in data['video_data']]
+            placeholders = ', '.join(['%s'] * len(video_ids))
+            comment_query = f"SELECT * FROM comment_data WHERE Video_id IN ({placeholders})"
+            cursor.execute(comment_query, tuple(video_ids))
+            data['comment_data'] = cursor.fetchall()
+        
+        return data
+        
+    except mysql.connector.Error as e:
+        st.error(f"Database error: {e}")
+        return None
+    finally:
+        cursor.close()  
+
+# SQL Analysis Functions
+
+def get_channel_videos(conn):
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute('''
+            SELECT channel_data.Channel_Name, video_data.Title as Video_Name
+            FROM video_data 
+            JOIN channel_data ON channel_data.Channel_Id = video_data.Channel_Id
+            ORDER BY channel_data.Channel_Name
+        ''')
+        result = cursor.fetchall()
+        df = pd.DataFrame(result)
+        df.index += 1
+        return df
+    finally:
+        cursor.close()
+
+def get_videos_per_channel(conn):
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute('''
+            SELECT DISTINCT Channel_Name, COUNT(Video_Id) as Total_Videos 
+            FROM video_data 
+            GROUP BY Channel_Name 
+            ORDER BY Total_Videos DESC
+        ''')
+        result = cursor.fetchall()
+        df = pd.DataFrame(result)
+        df.index += 1
+        return df
+    finally:
+        cursor.close()
+
+def get_top_viewed_videos(conn):
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute('''
+            SELECT Channel_Name, Title as Video_Name, Views as Total_Views
+            FROM video_data
+            ORDER BY Views DESC
+            LIMIT 10
+        ''')
+        result = cursor.fetchall()
+        df = pd.DataFrame(result)
+        df.index += 1
+        return df
+    finally:
+        cursor.close()
+
+def get_comment_counts(conn):
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute('''
+            SELECT Title as Video_Name, Comments as Total_Comments
+            FROM video_data
+            ORDER BY Comments DESC
+        ''')
+        result = cursor.fetchall()
+        df = pd.DataFrame(result)
+        df.index += 1
+        return df
+    finally:
+        cursor.close()
+
+def get_highest_likes_by_channel(conn):
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute('''
+            SELECT v.Channel_Name, v.Title as Video_Name, v.Likes as Highest_Likes
+            FROM video_data v
+            INNER JOIN (
+                SELECT Channel_Id, MAX(Likes) as max_likes
+                FROM video_data
+                GROUP BY Channel_Id
+            ) vm ON v.Channel_Id = vm.Channel_Id AND v.Likes = vm.max_likes
+            ORDER BY v.Likes DESC
+        ''')
+        result = cursor.fetchall()
+        df = pd.DataFrame(result)
+        df.index += 1
+        return df
+    finally:
+        cursor.close()
+
+def get_video_likes(conn):
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute('''
+            SELECT Title as Video_Name, Likes
+            FROM video_data
+            ORDER BY Likes DESC
+        ''')
+        result = cursor.fetchall()
+        df = pd.DataFrame(result)
+        df.index += 1
+        return df
+    finally:
+        cursor.close()
+
+def get_channel_views(conn):
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute('''
+            SELECT Channel_Name, Views as Total_Views
+            FROM channel_data
+            ORDER BY Views DESC
+        ''')
+        result = cursor.fetchall()
+        df = pd.DataFrame(result)
+        df.index += 1
+        return df
+    finally:
+        cursor.close()
+
+def get_2022_channels(conn):
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute('''
+            SELECT DISTINCT Channel_Name
+            FROM video_data
+            WHERE YEAR(Publishdate) = 2022
+        ''')
+        result = cursor.fetchall()
+        df = pd.DataFrame(result)
+        df.index += 1
+        return df
+    finally:
+        cursor.close()
+
+def get_avg_duration(conn):
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute('''
+            SELECT Channel_Name,
+                   TIME_FORMAT(
+                       SEC_TO_TIME(AVG(CAST(Duration AS DECIMAL(10,2)))), 
+                       '%H:%i:%s'
+                   ) as Average_Duration
+            FROM video_data
+            GROUP BY Channel_Name
+        ''')
+        result = cursor.fetchall()
+        df = pd.DataFrame(result)
+        df.index += 1
+        return df
+    finally:
+        cursor.close()
+
+def get_most_commented_videos(conn):
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute('''
+            SELECT Channel_Name, Title as Video_Name, Comments as Total_Comments
+            FROM video_data
+            ORDER BY Comments DESC
+        ''')
+        result = cursor.fetchall()
+        df = pd.DataFrame(result)
+        df.index += 1
+        return df
+    finally:
+        cursor.close()
+  
+
 # Main Application Logic
 def main():
     st.title("YouTube Data Harvesting and Warehousing")
 
     youtube = Api_connect()
     if not youtube:
-        st.stop()
-    
-    # Enter the channel ID for which the data is to be retrieved
-    channel_id = st.text_input("Enter YouTube Channel ID:")
-    if not channel_id:
-        st.info("Please enter a YouTube Channel ID")
         st.stop()
 
     conn = connect_to_mysql()    
@@ -430,7 +651,83 @@ def main():
 
     try:
         create_tables(conn)
-        tab1, tab2 = st.tabs(["Data Collection & Storage", "Data Analysis"])    
+
+        st.header("📊 Channel Management")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("Add New Channel")
+            new_channel_id = st.text_input("Enter YouTube Channel ID:")
+            
+        with col2:
+            st.subheader("View Stored Channels")
+            if st.button("🔄 Refresh Channel List"):
+                stored_channels = get_stored_channel_list(conn)
+                if stored_channels:
+                    st.session_state.stored_channels = stored_channels
+                    st.success(f"Found {len(stored_channels)} stored channels")
+                else:
+                    st.info("No channels found in database")
+
+        # Display stored channels in an expander
+        if 'stored_channels' in st.session_state:
+            with st.expander("View Stored Channels"):
+                for channel in st.session_state.stored_channels:
+                    cols = st.columns([3, 2, 2, 1])
+                    with cols[0]:
+                        st.write(f"📺 {channel['Channel_Name']}")
+                    with cols[1]:
+                        st.write(f"👥 {channel['Subscribers']:,} subs")
+                    with cols[2]:
+                        st.write(f"🎬 {channel['Total_videos']} videos")
+                    with cols[3]:
+                        if st.button("Load", key=f"btn_{channel['Channel_Id']}"):
+                            st.session_state.selected_channel_id = channel['Channel_Id']
+                            st.session_state.selected_channel_name = channel['Channel_Name']
+
+        # Display loaded channel data outside the expander
+        if 'selected_channel_id' in st.session_state:
+            with st.spinner(f"Loading data for {st.session_state.selected_channel_name}..."):
+                stored_data = fetch_stored_channel_data(conn, st.session_state.selected_channel_id)
+                
+                if stored_data:
+                    # Store the data in session state for use in other tabs
+                    st.session_state.channel_info = stored_data['channel_info']
+                    st.session_state.video_data = stored_data['video_data']
+                    st.session_state.playlist_info = stored_data['playlist_info']
+                    st.session_state.comment_data = stored_data['comment_data']
+                    
+                    # Display channel information
+                    st.markdown("---")  # Add a separator
+                    st.header(f"Channel: {st.session_state.selected_channel_name}")
+                    
+                    # Channel Data
+                    st.subheader('📺 Channel Information')
+                    if stored_data['channel_info']:
+                        st.dataframe(pd.DataFrame(stored_data['channel_info']), use_container_width=True)
+                    
+                    # Video Data
+                    st.subheader('🎥 Videos')
+                    if stored_data['video_data']:
+                        st.dataframe(pd.DataFrame(stored_data['video_data']), use_container_width=True)
+                    
+                    # Playlist Data
+                    st.subheader('📑 Playlists')
+                    if stored_data['playlist_info']:
+                        st.dataframe(pd.DataFrame(stored_data['playlist_info']), use_container_width=True)
+                    
+                    # Comment Data
+                    st.subheader('💬 Comments')
+                    if stored_data['comment_data']:
+                        st.dataframe(pd.DataFrame(stored_data['comment_data']), use_container_width=True)
+                    
+                    st.success(f"Successfully loaded data for {st.session_state.selected_channel_name}")
+                else:
+                    st.error("Could not load channel data")                
+                                        
+        channel_id = new_channel_id or st.session_state.get('selected_channel_id', '')
+
+        tab1, tab2, tab3 = st.tabs(["Data Collection & Storage", "Data Analysis", "Data Visualization"])    
     
         with tab1:
             if channel_id:
@@ -489,6 +786,77 @@ def main():
 
         with tab2:
             st.header("Data Analysis")
+            st.subheader("Analysis using SQL")
+            
+            st.markdown('''You can analyze the YouTube channel data stored in the MySQL database.
+                        Select a question below to see the analysis results in a table format.''')
+            
+            Questions = [
+                'Select your Question',
+                '1. What are the names of all the videos and their corresponding channels?',
+                '2. Which channels have the most number of videos, and how many videos do they have?',
+                '3. What are the top 10 most viewed videos and their respective channels?',
+                '4. How many comments were made on each video, and what are their corresponding video names?',
+                '5. Which videos have the highest number of likes, and what are their corresponding channel names?',
+                '6. What is the total number of likes for each video, and what are their corresponding video names?',
+                '7. What is the total number of views for each channel, and what are their corresponding channel names?',
+                '8. What are the names of all the channels that have published videos in the year 2022?',
+                '9. What is the average duration of all videos in each channel, and what are their corresponding channel names?',
+                '10. Which videos have the highest number of comments, and what are their corresponding channel names?'
+            ]
+            
+            selected_question = st.selectbox(' ', options=Questions)
+            
+            if selected_question.startswith('1.'):
+                df = get_channel_videos(conn)
+                st.dataframe(df)
+            
+            elif selected_question.startswith('2.'):
+                df = get_videos_per_channel(conn)
+                st.dataframe(df)
+                st.bar_chart(df.set_index('Channel_Name')['Total_Videos'])
+            
+            elif selected_question.startswith('3.'):
+                df = get_top_viewed_videos(conn)
+                st.dataframe(df)
+                st.bar_chart(df.set_index('Video_Name')['Total_Views'])
+            
+            elif selected_question.startswith('4.'):
+                df = get_comment_counts(conn)
+                st.dataframe(df)
+                st.bar_chart(df.head(10).set_index('Video_Name')['Total_Comments'])
+            
+            elif selected_question.startswith('5.'):
+                df = get_highest_likes_by_channel(conn)
+                st.dataframe(df)
+                st.bar_chart(df.set_index('Video_Name')['Highest_Likes'])
+            
+            elif selected_question.startswith('6.'):
+                st.write('**:red[Note]: Dislike counts are no longer available as they were made private by YouTube in December 2021.**')
+                df = get_video_likes(conn)
+                st.dataframe(df)
+                st.bar_chart(df.head(10).set_index('Video_Name')['Likes'])
+            
+            elif selected_question.startswith('7.'):
+                df = get_channel_views(conn)
+                st.dataframe(df)
+                st.bar_chart(df.set_index('Channel_Name')['Total_Views'])
+            
+            elif selected_question.startswith('8.'):
+                df = get_2022_channels(conn)
+                st.dataframe(df)
+            
+            elif selected_question.startswith('9.'):
+                df = get_avg_duration(conn)
+                st.dataframe(df)
+            
+            elif selected_question.startswith('10.'):
+                df = get_most_commented_videos(conn)
+                st.dataframe(df)
+                st.bar_chart(df.head(10).set_index('Video_Name')['Total_Comments'])
+
+        with tab3:
+            st.header("Data Visualization")
             
             if 'video_data' not in st.session_state or 'channel_info' not in st.session_state:
                 st.warning("Please collect channel data first before analyzing")
