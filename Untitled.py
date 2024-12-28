@@ -5,6 +5,7 @@ import streamlit as st
 import datetime
 import mysql.connector
 import isodate
+import altair as alt
 
 # API Connection
 Api_Key = "AIzaSyCmxcNUjTYT9V3BvJfJ9eCGkzrKqR_XCFM"
@@ -149,7 +150,7 @@ def get_comment_Details(youtube, video_id, max_comments=10):
                 'Comment_Published': publish_date
             })
             
-        st.success(f"Retrieved {len(Comment_data)} comments")
+        print(f"Retrieved {len(Comment_data)} comments")
         
     except Exception as e:
         st.error(f"Error fetching comments: {str(e)}")
@@ -638,7 +639,9 @@ def get_most_commented_videos(conn):
 
 # Main Application Logic
 def main():
-    st.title("YouTube Data Harvesting and Warehousing")
+    st.set_page_config(page_title='YouTube Data Harvesting and Warehousing',
+                    layout='wide',
+                    initial_sidebar_state='expanded')
 
     youtube = Api_connect()
     if not youtube:
@@ -652,16 +655,16 @@ def main():
     try:
         create_tables(conn)
 
-        st.header("📊 Channel Management")
+        st.header("🛠️ Channel Management")
         col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("Add New Channel")
+            st.subheader("➕ Add New Channel")
             new_channel_id = st.text_input("Enter YouTube Channel ID:")
             
         with col2:
-            st.subheader("View Stored Channels")
-            if st.button("🔄 Refresh Channel List"):
+            st.subheader("🗃️ View Stored Channels")
+            if st.button("🔃 Refresh Channel List"):
                 stored_channels = get_stored_channel_list(conn)
                 if stored_channels:
                     st.session_state.stored_channels = stored_channels
@@ -677,57 +680,17 @@ def main():
                     with cols[0]:
                         st.write(f"📺 {channel['Channel_Name']}")
                     with cols[1]:
-                        st.write(f"👥 {channel['Subscribers']:,} subs")
+                        st.write(f"🔔 {channel['Subscribers']:,} subs")
                     with cols[2]:
-                        st.write(f"🎬 {channel['Total_videos']} videos")
+                        st.write(f"📽️ {channel['Total_videos']} videos")
                     with cols[3]:
                         if st.button("Load", key=f"btn_{channel['Channel_Id']}"):
                             st.session_state.selected_channel_id = channel['Channel_Id']
-                            st.session_state.selected_channel_name = channel['Channel_Name']
-
-        # Display loaded channel data outside the expander
-        if 'selected_channel_id' in st.session_state:
-            with st.spinner(f"Loading data for {st.session_state.selected_channel_name}..."):
-                stored_data = fetch_stored_channel_data(conn, st.session_state.selected_channel_id)
-                
-                if stored_data:
-                    # Store the data in session state for use in other tabs
-                    st.session_state.channel_info = stored_data['channel_info']
-                    st.session_state.video_data = stored_data['video_data']
-                    st.session_state.playlist_info = stored_data['playlist_info']
-                    st.session_state.comment_data = stored_data['comment_data']
-                    
-                    # Display channel information
-                    st.markdown("---")  # Add a separator
-                    st.header(f"Channel: {st.session_state.selected_channel_name}")
-                    
-                    # Channel Data
-                    st.subheader('📺 Channel Information')
-                    if stored_data['channel_info']:
-                        st.dataframe(pd.DataFrame(stored_data['channel_info']), use_container_width=True)
-                    
-                    # Video Data
-                    st.subheader('🎥 Videos')
-                    if stored_data['video_data']:
-                        st.dataframe(pd.DataFrame(stored_data['video_data']), use_container_width=True)
-                    
-                    # Playlist Data
-                    st.subheader('📑 Playlists')
-                    if stored_data['playlist_info']:
-                        st.dataframe(pd.DataFrame(stored_data['playlist_info']), use_container_width=True)
-                    
-                    # Comment Data
-                    st.subheader('💬 Comments')
-                    if stored_data['comment_data']:
-                        st.dataframe(pd.DataFrame(stored_data['comment_data']), use_container_width=True)
-                    
-                    st.success(f"Successfully loaded data for {st.session_state.selected_channel_name}")
-                else:
-                    st.error("Could not load channel data")                
+                            st.session_state.selected_channel_name = channel['Channel_Name']              
                                         
         channel_id = new_channel_id or st.session_state.get('selected_channel_id', '')
 
-        tab1, tab2, tab3 = st.tabs(["Data Collection & Storage", "Data Analysis", "Data Visualization"])    
+        tab1, tab2, tab3 = st.tabs(["📦 Data Collection & Storage", "📊 Data Analysis", "📈 Data Visualization"])    
     
         with tab1:
             if channel_id:
@@ -737,7 +700,7 @@ def main():
                         channel_info = get_channel_info(youtube, channel_id)
                         if channel_info:
                             st.session_state.channel_info = channel_info
-                            st.header("Channel Information")
+                            st.header("📺Channel Information")
                             st.write(channel_info)
                             insert_channel_info_to_mysql(conn, channel_info)
 
@@ -747,7 +710,7 @@ def main():
                                 video_data = get_Video_Details(youtube, video_ids)
                                 if video_data:
                                     st.session_state.video_data = video_data
-                                    st.header("Video Information")
+                                    st.header("📽️ Video Information")
                                     st.dataframe(pd.DataFrame(video_data))
                                     insert_video_info_to_mysql(conn, video_data)
 
@@ -755,34 +718,34 @@ def main():
                             playlist_info = get_playlist_details(youtube, channel_id)
                             if playlist_info:
                                 st.session_state.playlist_info = playlist_info
-                                st.header("Playlist Information")
+                                st.header("📃 Playlist Information")
                                 st.dataframe(pd.DataFrame(playlist_info))
                                 insert_playlist_info_to_mysql(conn, playlist_info)
 
-                            st.success("✅ Data collection and storage completed!")
 
                 # Comments Section
                 if 'video_data' in st.session_state:
                     st.markdown("---")
-                    st.header("📝 Comments Section")
+                    st.header("🗨️ Comments Section")
                     
                     # Video selection dropdown
                     video_options = {v['Video_Id']: v['Title'] for v in st.session_state.video_data}
                     selected_video = st.selectbox(
                         "Select Video to View Comments",
                         options=list(video_options.keys()),
-                        format_func=lambda x: video_options[x][:100] + "..."  # Truncate long titles
+                        format_func=lambda x: video_options[x][:100] + "..."
                     )
 
                     if st.button("Get Comments"):
                         with st.spinner("Fetching comments..."):
                             comments = get_comment_Details(youtube, selected_video)
                             if comments:
-                                st.success(f"Found {len(comments)} comments")
                                 st.dataframe(pd.DataFrame(comments))
                                 insert_comment_info_to_mysql(conn, comments)
                             else:
                                 st.info("No comments found for this video")
+
+                            st.success("✅ Data collection and storage completed!")    
 
         with tab2:
             st.header("Data Analysis")
@@ -861,95 +824,192 @@ def main():
             if 'video_data' not in st.session_state or 'channel_info' not in st.session_state:
                 st.warning("Please collect channel data first before analyzing")
                 st.stop()
-            
-            # Convert video data to DataFrame
-            video_df = pd.DataFrame(st.session_state.video_data)
 
-            numeric_columns = ['Views', 'Likes', 'Comments', 'Favorite_count']
-            for col in numeric_columns:
-                video_df[col] = pd.to_numeric(video_df[col], errors='coerce')
-            
-            # 1. Top 10 Videos by Views
-            st.subheader("Most Viewed Videos")
-            top_videos = video_df.nlargest(10, 'Views')[['Title', 'Views']]
-            st.bar_chart(top_videos.set_index('Title'))
-            
-            # 2. View Count Distribution
-            st.subheader("View Count Distribution")
-            st.line_chart(video_df['Views'].sort_values(ascending=False))
-            
-            # 3. Video Statistics
-            st.subheader("Video Statistics")
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                st.metric("Total Views", f"{video_df['Views'].sum():,}")
-            with col2:
-                st.metric("Total Likes", f"{video_df['Likes'].sum():,}")
-            with col3:
-                st.metric("Average Views", f"{int(video_df['Views'].mean()):,}")
+            Option = st.selectbox('Select Visualization', [
+                'Select to view',
+                '1. Channels with Subscriber Count',
+                '2. Channels with highest No Of Videos',
+                '3. Channels with Total Views',
+                '4. Channels with Average videos duration',
+                '5. Year wise Performance Analysis',
+                '6. Advanced Analytics Dashboard'
+            ])
 
-            # 4. Video Duration Analysis
-            st.subheader("Video Duration Analysis")
-            video_df['Duration_Min'] = pd.to_numeric(video_df['Duration']) / 60
-            st.line_chart(video_df[['Duration_Min']])
-            
-            # 5. Comments Analysis
-            st.subheader("Comments Distribution")
-            st.bar_chart(video_df[['Comments']])
-            
-            # 6. Publishing Day Analysis
-            st.subheader("Publishing Day Analysis")
-            video_df['Publishdate'] = pd.to_datetime(video_df['Publishdate'])
-            video_df['Publishing_Day'] = video_df['Publishdate'].dt.day_name()
-            day_dist = video_df['Publishing_Day'].value_counts()
-            st.bar_chart(day_dist)
+            if Option == '1. Channels with Subscriber Count':
+                def plot_subscribers():
+                    query = '''SELECT Channel_Name, Subscribers 
+                            FROM channel_data 
+                            ORDER BY Subscribers DESC'''
+                    cursor = conn.cursor(dictionary=True)
+                    cursor.execute(query)
+                    data = cursor.fetchall()
+                    df = pd.DataFrame(data)
+                    st.subheader("Channel Subscriber Counts")
+                    st.bar_chart(df.set_index('Channel_Name')['Subscribers'])
+                    st.dataframe(df)
+                    cursor.close()
+                plot_subscribers()
 
-            # 7. Basic Stats Table
-            st.subheader("Basic Statistics")
-            stats_df = pd.DataFrame({
-                'Metric': ['Total Videos', 'Average Views', 'Average Likes', 'Average Comments'],
-                'Value': [
-                    len(video_df),
-                    int(video_df['Views'].mean()),
-                    int(video_df['Likes'].mean()),
-                    int(video_df['Comments'].mean())
-                ]
-            })
-            st.table(stats_df)
+            elif Option == '2. Channels with highest No Of Videos':
+                def plot_video_counts():
+                    query = '''SELECT Channel_Name, Total_videos 
+                            FROM channel_data 
+                            ORDER BY Total_videos DESC'''
+                    cursor = conn.cursor(dictionary=True)
+                    cursor.execute(query)
+                    data = cursor.fetchall()
+                    df = pd.DataFrame(data)
+                    st.subheader("Total Videos per Channel")
+                    st.bar_chart(df.set_index('Channel_Name')['Total_videos'])
+                    st.dataframe(df)
+                    cursor.close()
+                plot_video_counts()  
 
-            # 8. Like-to-View Ratio
-            st.subheader("Like-to-View Ratio")
-            video_df['Like_to_View_Ratio'] = (video_df['Likes'] / video_df['Views']) * 100
-            ratio_df = video_df.nlargest(10, 'Like_to_View_Ratio')[['Title', 'Like_to_View_Ratio']]
-            st.bar_chart(ratio_df.set_index('Title'))
+            elif Option == '3. Channels with Total Views':
+                def plot_channel_views():
+                    query = '''SELECT Channel_Name, Views 
+                            FROM channel_data 
+                            ORDER BY Views DESC'''
+                    cursor = conn.cursor(dictionary=True)
+                    cursor.execute(query)
+                    data = cursor.fetchall()
+                    df = pd.DataFrame(data)
+                    st.subheader("Total Views per Channel")
+                    st.bar_chart(df.set_index('Channel_Name')['Views'])
+                    st.dataframe(df)
+                    cursor.close()
+                plot_channel_views()
 
-            # 9. Views and Likes Over Time
-            st.subheader("Trending Views and Likes Over Time")
-            video_df['Publishdate'] = pd.to_datetime(video_df['Publishdate'])
-            trend_df = video_df.sort_values(by='Publishdate')
-            st.line_chart(trend_df.set_index('Publishdate')[['Views', 'Likes']])
+            elif Option == '4. Channels with Average videos duration':
+                def plot_avg_duration():
+                    query = '''SELECT 
+                                Channel_Name,
+                                AVG(CAST(Duration AS DECIMAL(10,2))) as Avg_Duration_Seconds,
+                                TIME_FORMAT(
+                                    SEC_TO_TIME(AVG(CAST(Duration AS DECIMAL(10,2)))), 
+                                    '%H:%i:%s'
+                                ) as Avg_Duration_Formatted
+                            FROM video_data
+                            GROUP BY Channel_Name'''
+                    cursor = conn.cursor(dictionary=True)
+                    cursor.execute(query)
+                    data = cursor.fetchall()
+                    df = pd.DataFrame(data)
+                    st.subheader("Average Video Duration by Channel")
+                
+                    st.bar_chart(df.set_index('Channel_Name')['Avg_Duration_Seconds'])
+                    st.write("Average Duration (HH:MM:SS)")
+                    for _, row in df.iterrows():
+                        st.write(f"{row['Channel_Name']}: {row['Avg_Duration_Formatted']}")
+                    cursor.close()
+                plot_avg_duration()
 
-            # 10. Duration vs. Engagement
-            st.subheader("Duration vs. Engagement")
-            st.scatter_chart(video_df, x='Duration_Min', y='Views', size='Likes', color='Comments')
+            elif Option == '5. Year wise Performance Analysis':
+                def plot_yearly_performance():
+                    query = '''SELECT 
+                                YEAR(Publishdate) as Year,
+                                Channel_Name,
+                                COUNT(Video_Id) as Total_Videos,
+                                SUM(Likes) as Total_Likes,
+                                SUM(Views) as Total_Views,
+                                SUM(Comments) as Total_Comments
+                            FROM video_data
+                            GROUP BY Channel_Name, YEAR(Publishdate)
+                            ORDER BY Year'''
+                    cursor = conn.cursor(dictionary=True)
+                    cursor.execute(query)
+                    data = cursor.fetchall()
+                    df = pd.DataFrame(data)
+                    
+                    st.subheader("Yearly Video Uploads")
+                    yearly_videos = df.pivot(index='Year', columns='Channel_Name', values='Total_Videos')
+                    st.line_chart(yearly_videos)
+                    
+                    likes_chart = alt.Chart(df).mark_bar().encode(
+                        x='Year:O',
+                        y='Total_Likes:Q',
+                        color='Channel_Name:N',
+                        tooltip=['Year', 'Channel_Name', 'Total_Likes']
+                    ).properties(
+                        title='Yearly Likes by Channel',
+                        width=600,
+                        height=400
+                    )
+                    
+                    views_chart = alt.Chart(df).mark_bar().encode(
+                        x=alt.X('Year:O', title='Year'),
+                        y=alt.Y('Total_Views:Q', title='Total Views'),
+                        xOffset='Channel_Name:N',  # This creates the grouping
+                        color='Channel_Name:N',
+                        tooltip=['Year', 'Channel_Name', 'Total_Views']
+                    ).properties(
+                        title='Yearly Views by Channel',
+                        width=600,
+                        height=400
+                    )
 
-            
-            # . Download Option
-            st.subheader("Download Analysis Data")
-            csv = video_df.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                "Download Complete Data",
-                csv,
-                "youtube_channel_analysis.csv",
-                "text/csv",
-                key='download-csv'
-            )
+                    comments_plot = alt.Chart(df).mark_line(point=True).encode(
+                        x=alt.X('Year:O', title='Year'),
+                        y=alt.Y('Total_Comments:Q', title='Total Comments'),
+                        color='Channel_Name:N',
+                        tooltip=['Year', 'Channel_Name', 'Total_Comments']
+                    ).properties(
+                        title='Yearly Comments by Channel (Connected Scatter)',
+                        width=600,
+                        height=400
+                    )
+    
+                    st.subheader("Yearly Performance Analysis")
+                    st.altair_chart(likes_chart, use_container_width=True)
+                    st.altair_chart(views_chart, use_container_width=True)
+                    st.altair_chart(comments_plot, use_container_width=True)
+                    
+                    st.dataframe(df)
+                    cursor.close()
+                plot_yearly_performance()
 
-            # . Raw Data View
-            if st.checkbox("Show Raw Data"):
-                st.subheader("Raw Video Data")
-                st.dataframe(video_df)                                        
+            elif Option == '6. Advanced Analytics Dashboard':
+                video_df = pd.DataFrame(st.session_state.video_data)
+                
+                # Convert numeric columns
+                numeric_columns = ['Views', 'Likes', 'Comments', 'Favorite_count']
+                for col in numeric_columns:
+                    video_df[col] = pd.to_numeric(video_df[col], errors='coerce')
+                
+                # Key metrics
+                st.subheader("Channel Overview")
+                st.write(f"📺 {channel['Channel_Name']}")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Views", f"{video_df['Views'].sum():,}")
+                with col2:
+                    st.metric("Total Likes", f"{video_df['Likes'].sum():,}")
+                with col3:
+                    st.metric("Average Views", f"{int(video_df['Views'].mean()):,}")
+
+                # Most viewed videos
+                st.subheader("Top 10 Most Viewed Videos")
+                top_videos = video_df.nlargest(10, 'Views')[['Title', 'Views', 'Channel_Name']]
+                st.bar_chart(top_videos.set_index('Title')['Views'])
+                st.dataframe(top_videos)
+
+                # Engagement metrics over time
+                st.subheader("Engagement Trends")
+                video_df['Publishdate'] = pd.to_datetime(video_df['Publishdate'])
+                engagement_df = video_df.sort_values('Publishdate').set_index('Publishdate')
+                st.line_chart(engagement_df[['Views', 'Likes', 'Comments']])
+
+                # Video duration analysis
+                st.subheader("Video Duration Analysis")
+                video_df['Duration_Min'] = pd.to_numeric(video_df['Duration']) / 60
+                st.line_chart(video_df[['Duration_Min']])
+                
+                # Publishing patterns
+                st.subheader("Publishing Patterns")
+                video_df['Publishing_Day'] = video_df['Publishdate'].dt.day_name()
+                day_counts = video_df['Publishing_Day'].value_counts()
+                st.bar_chart(day_counts)
+                )                                     
         
     except Exception as e:
         st.error(f"An error occurred: {str(e)}")
