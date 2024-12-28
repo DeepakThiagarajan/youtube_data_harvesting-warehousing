@@ -1008,8 +1008,7 @@ def main():
                 st.subheader("Publishing Patterns")
                 video_df['Publishing_Day'] = video_df['Publishdate'].dt.day_name()
                 day_counts = video_df['Publishing_Day'].value_counts()
-                st.bar_chart(day_counts)
-                )                                     
+                st.bar_chart(day_counts)                                   
         
     except Exception as e:
         st.error(f"An error occurred: {str(e)}")
