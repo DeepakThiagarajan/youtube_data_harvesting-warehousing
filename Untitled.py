@@ -383,14 +383,20 @@ def insert_playlist_info_to_mysql(conn, playlist_info):
     cursor = conn.cursor()
     try:
         for info in playlist_info:
+
+            published_date = datetime.datetime.strptime(
+                info["PublishedAt"], 
+                '%Y-%m-%dT%H:%M:%S.%fZ'
+            ).strftime('%Y-%m-%d %H:%M:%S')
+            
             insert_query = """
-            INSERT INTO playlist_data (Playlist_Id, Title, Channel_Id, Channel_Name, PublishedAt, Video_count)
+            INSERT INTO playlist_data (Playlist_Id, Title, Channel_Id, Channel_Name, Publishdate, Video_count)
             VALUES (%s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 Title = VALUES(Title),
                 Channel_Id = VALUES(Channel_Id),
                 Channel_Name = VALUES(Channel_Name),
-                PublishedAt = VALUES(PublishedAt),
+                Publishdate = VALUES(Publishdate),
                 Video_count = VALUES(Video_count)
             """
             cursor.execute(insert_query, (
@@ -398,7 +404,7 @@ def insert_playlist_info_to_mysql(conn, playlist_info):
                 info["Title"],
                 info["Channel_Id"],
                 info["Channel_Name"],
-                info["PublishedAt"],
+                published_date,
                 info["Video_count"]
             ))
         
@@ -473,7 +479,6 @@ def fetch_stored_channel_data(conn, channel_id):
         cursor.close()  
 
 # SQL Analysis Functions
-
 def get_channel_videos(conn):
     cursor = conn.cursor(dictionary=True)
     try:
@@ -526,7 +531,7 @@ def get_comment_counts(conn):
     cursor = conn.cursor(dictionary=True)
     try:
         cursor.execute('''
-            SELECT Title as Video_Name, Comments as Total_Comments
+            SELECT Channel_Name, Title as Video_Name, Comments as Total_Comments
             FROM video_data
             ORDER BY Comments DESC
         ''')
@@ -537,18 +542,16 @@ def get_comment_counts(conn):
     finally:
         cursor.close()
 
-def get_highest_likes_by_channel(conn):
+def get_highest_likes_video(conn):
     cursor = conn.cursor(dictionary=True)
     try:
         cursor.execute('''
-            SELECT v.Channel_Name, v.Title as Video_Name, v.Likes as Highest_Likes
-            FROM video_data v
-            INNER JOIN (
-                SELECT Channel_Id, MAX(Likes) as max_likes
-                FROM video_data
-                GROUP BY Channel_Id
-            ) vm ON v.Channel_Id = vm.Channel_Id AND v.Likes = vm.max_likes
-            ORDER BY v.Likes DESC
+            SELECT Channel_Name, 
+                   Title as Video_Name, 
+                   Likes as Total_Likes
+            FROM video_data
+            ORDER BY Likes DESC
+            LIMIT 1
         ''')
         result = cursor.fetchall()
         df = pd.DataFrame(result)
@@ -561,7 +564,7 @@ def get_video_likes(conn):
     cursor = conn.cursor(dictionary=True)
     try:
         cursor.execute('''
-            SELECT Title as Video_Name, Likes
+            SELECT Channel_Name, Title as Video_Name, Likes
             FROM video_data
             ORDER BY Likes DESC
         ''')
@@ -591,9 +594,11 @@ def get_2022_channels(conn):
     cursor = conn.cursor(dictionary=True)
     try:
         cursor.execute('''
-            SELECT DISTINCT Channel_Name
-            FROM video_data
+            SELECT DISTINCT v.Channel_Name,
+                       GROUP_CONCAT(v.Title SEPARATOR ' ⇦⇨ ') as Videos_Published_in_2022                                
+            FROM video_data v
             WHERE YEAR(Publishdate) = 2022
+            GROUP BY v.Channel_Name
         ''')
         result = cursor.fetchall()
         df = pd.DataFrame(result)
@@ -628,6 +633,7 @@ def get_most_commented_videos(conn):
             SELECT Channel_Name, Title as Video_Name, Comments as Total_Comments
             FROM video_data
             ORDER BY Comments DESC
+            LIMIT 10
         ''')
         result = cursor.fetchall()
         df = pd.DataFrame(result)
@@ -694,8 +700,25 @@ def main():
     
         with tab1:
             if channel_id:
-                if st.button("Get Channel Details"):
+                cursor = conn.cursor()
+                cursor.execute("SELECT Channel_Name, Total_videos, Views, Subscribers FROM channel_data WHERE Channel_Id = %s", (channel_id,))
+                exists = cursor.fetchone()
+                cursor.close()
+                
+                if exists and not st.session_state.get('action_taken', False):
+                    st.info(f"""
+                    Channel Details Available:
+                    • Channel Name: {exists[0]}
+                    • Total Videos: {exists[1]:,}
+                    • Total Views: {exists[2]:,}
+                    • Subscribers: {exists[3]:,}
+                    
+                    Click 'Get or Update Channel Details' to view complete information to refresh metrics.
+                    """)
+
+                if st.button("Get or Update Channel Details"):
                     # Fetch Channel Data
+                    st.session_state.action_taken = True
                     with st.spinner("Fetching channel information..."):
                         channel_info = get_channel_info(youtube, channel_id)
                         if channel_info:
@@ -737,7 +760,7 @@ def main():
                     )
 
                     if st.button("Get Comments"):
-                        with st.spinner("Fetching comments..."):
+                        with st.spinner("Fetching recent 10 comments..."):
                             comments = get_comment_Details(youtube, selected_video)
                             if comments:
                                 st.dataframe(pd.DataFrame(comments))
@@ -745,15 +768,13 @@ def main():
                             else:
                                 st.info("No comments found for this video")
 
-                            st.success("✅ Data collection and storage completed!")    
+                            st.success("✅ Channel data is added/updated successfully!")    
 
         with tab2:
-            st.header("Data Analysis")
-            st.subheader("Analysis using SQL")
-            
+                                    
             st.markdown('''You can analyze the YouTube channel data stored in the MySQL database.
                         Select a question below to see the analysis results in a table format.''')
-            
+
             Questions = [
                 'Select your Question',
                 '1. What are the names of all the videos and their corresponding channels?',
@@ -790,9 +811,9 @@ def main():
                 st.bar_chart(df.head(10).set_index('Video_Name')['Total_Comments'])
             
             elif selected_question.startswith('5.'):
-                df = get_highest_likes_by_channel(conn)
+                df = get_highest_likes_video(conn)
                 st.dataframe(df)
-                st.bar_chart(df.set_index('Video_Name')['Highest_Likes'])
+                # st.bar_chart(df.set_index('Video_Name')['Total_Likes'])
             
             elif selected_question.startswith('6.'):
                 st.write('**:red[Note]: Dislike counts are no longer available as they were made private by YouTube in December 2021.**')
@@ -819,13 +840,12 @@ def main():
                 st.bar_chart(df.head(10).set_index('Video_Name')['Total_Comments'])
 
         with tab3:
-            st.header("Data Visualization")
             
             if 'video_data' not in st.session_state or 'channel_info' not in st.session_state:
                 st.warning("Please collect channel data first before analyzing")
                 st.stop()
 
-            Option = st.selectbox('Select Visualization', [
+            Option = st.selectbox('Choose Visualization', [
                 'Select to view',
                 '1. Channels with Subscriber Count',
                 '2. Channels with highest No Of Videos',
@@ -1008,7 +1028,7 @@ def main():
                 st.subheader("Publishing Patterns")
                 video_df['Publishing_Day'] = video_df['Publishdate'].dt.day_name()
                 day_counts = video_df['Publishing_Day'].value_counts()
-                st.bar_chart(day_counts)                                   
+                st.bar_chart(day_counts)                                 
         
     except Exception as e:
         st.error(f"An error occurred: {str(e)}")
